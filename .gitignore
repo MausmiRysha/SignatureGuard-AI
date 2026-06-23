@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+tf-env/
+ai-model/tf-env/
+
+# Uploads
+uploads/
+
+# Dataset
+dataset/
+
+# React
+node_modules/
+
+.env
