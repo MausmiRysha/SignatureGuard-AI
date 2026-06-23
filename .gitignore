@@ -16,3 +16,8 @@ dataset/
 node_modules/
 
 .env
+
+ai-model/tf-env/
+ai-model/venv/
+ai-model/dataset/
+ai-model/uploads/
