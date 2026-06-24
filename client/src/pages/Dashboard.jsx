@@ -67,7 +67,7 @@ function Dashboard() {
 
       const response = await axios.post(
 
-        "http://127.0.0.1:5000/predict",
+     "https://signatureguard-ai-5.onrender.com/predict",
 
         formData,
 
