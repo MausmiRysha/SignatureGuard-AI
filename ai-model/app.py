@@ -5,63 +5,66 @@ import numpy as np
 import cv2
 import os
 import traceback
+from werkzeug.utils import secure_filename
+
 
 app = Flask(__name__)
 
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+
+print("==============================")
+print(" STARTING SIGNATUREGUARD API ")
+print("==============================")
+
+
+# Load model
+try:
+
+    print("Loading model...")
+
+    model = tf.keras.models.load_model("model.h5")
+
+    print("MODEL LOADED SUCCESSFULLY")
+    print("INPUT SHAPE:", model.input_shape)
+    print("OUTPUT SHAPE:", model.output_shape)
+
+except Exception as e:
+
+    print("MODEL LOADING ERROR")
+    traceback.print_exc()
+    raise e
 
 
 
-print("Loading model...")
+UPLOAD_FOLDER = "uploads"
 
+if not os.path.exists(UPLOAD_FOLDER):
 
-model = tf.keras.models.load_model(
-    "model.h5"
-)
-
-
-print("MODEL LOADED SUCCESSFULLY")
-
-
-print(
-    "MODEL INPUT:",
-    model.input_shape
-)
-
-
-print(
-    "MODEL OUTPUT:",
-    model.output_shape
-)
+    os.makedirs(UPLOAD_FOLDER)
 
 
 
 
 
-def preprocess_image(path):
+def preprocess_image(image_path):
 
+    print("\n--- PREPROCESS START ---")
 
-    print(
-        "Reading image:",
-        path
-    )
+    print("Image path:", image_path)
 
 
     img = cv2.imread(
-
-        path,
-
+        image_path,
         cv2.IMREAD_COLOR
-
     )
 
 
     if img is None:
 
         raise Exception(
-            "Image reading failed"
+            "OpenCV failed to read image"
         )
-
 
 
     print(
@@ -70,22 +73,16 @@ def preprocess_image(path):
     )
 
 
-
     img = cv2.resize(
-
         img,
-
         (128,128)
-
     )
-
 
 
     print(
-        "Resize shape:",
+        "After resize:",
         img.shape
     )
-
 
 
     img = img.astype(
@@ -95,13 +92,9 @@ def preprocess_image(path):
 
 
     img = np.expand_dims(
-
         img,
-
         axis=0
-
     )
-
 
 
     print(
@@ -110,8 +103,10 @@ def preprocess_image(path):
     )
 
 
-    return img
+    print("--- PREPROCESS END ---\n")
 
+
+    return img
 
 
 
@@ -123,8 +118,22 @@ def home():
 
     return jsonify({
 
-        "message":
-        "SignatureGuard API Running"
+        "message": "SignatureGuard API Running",
+
+        "model": "loaded"
+
+    })
+
+
+
+
+
+@app.route("/health")
+def health():
+
+    return jsonify({
+
+        "status":"OK"
 
     })
 
@@ -133,35 +142,65 @@ def home():
 
 
 
-
-@app.route(
-    "/predict",
-    methods=["POST"]
-)
-
+@app.route("/predict", methods=["POST"])
 def predict():
-
 
     try:
 
-
-        print("\n====================")
-
-        print("NEW PREDICTION REQUEST")
-
-        print("====================")
-
+        print("\n\n==============================")
+        print(" NEW PREDICTION REQUEST ")
+        print("==============================")
 
 
         print(
-            "FILES:",
+            "Headers:",
+            request.headers
+        )
+
+
+        print(
+            "Files received:",
             request.files
         )
 
 
+        print(
+            "Form data:",
+            request.form
+        )
 
-        if "image" not in request.files:
 
+
+        file = None
+
+
+        # Accept different frontend keys
+
+        if "image" in request.files:
+
+            file = request.files["image"]
+
+            print("Using key: image")
+
+
+        elif "file" in request.files:
+
+            file = request.files["file"]
+
+            print("Using key: file")
+
+
+        elif "signature" in request.files:
+
+            file = request.files["signature"]
+
+            print("Using key: signature")
+
+
+
+        if file is None:
+
+            print("NO FILE FOUND")
 
             return jsonify({
 
@@ -173,30 +212,29 @@ def predict():
 
 
 
-        file = request.files["image"]
-
-
 
         print(
-            "FILE NAME:",
+            "Filename:",
             file.filename
         )
 
 
+        filename = secure_filename(
+            file.filename
+        )
 
-        if not os.path.exists("uploads"):
 
-            os.makedirs(
-                "uploads"
-            )
+        if filename == "":
+
+            filename = "uploaded_image.png"
 
 
 
         filepath = os.path.join(
 
-            "uploads",
+            UPLOAD_FOLDER,
 
-            file.filename
+            filename
 
         )
 
@@ -207,45 +245,41 @@ def predict():
 
 
         print(
-            "IMAGE SAVED:",
+            "Saved file:",
             filepath
         )
 
 
 
+
+        # Preprocess
+
         image = preprocess_image(
-
             filepath
-
         )
 
 
 
         print(
-            "Running model..."
+            "Running TensorFlow prediction..."
         )
-
 
 
         prediction = model.predict(
-
             image
-
         )
 
 
 
         print(
-            "RAW MODEL OUTPUT:",
+            "RAW OUTPUT:",
             prediction
         )
 
 
 
         score = float(
-
             prediction[0][0]
-
         )
 
 
@@ -259,83 +293,85 @@ def predict():
 
         if score >= 0.5:
 
-
-            result = "Genuine"
+            label = "Genuine"
 
             confidence = score * 100
 
 
-
         else:
 
-
-            result = "Forged"
+            label = "Forged"
 
             confidence = (1-score) * 100
 
 
 
 
+
         response = {
 
+            "prediction": label,
 
-            "status":
+            "status": label,
 
-            result,
+            "result": label,
 
-
-            "confidence":
-
-            round(
+            "confidence": round(
                 confidence,
                 2
             ),
 
-
-            "raw_score":
-
-            round(
+            "raw_score": round(
                 score,
                 4
             ),
 
-
-            "image":
-
-            file.filename
+            "image": filename
 
         }
 
 
 
         print(
-            "FINAL RESPONSE:",
-            response
+            "FINAL RESPONSE:"
         )
+
+        print(response)
 
 
 
         return jsonify(response)
+
+
+
+
+
     except Exception as e:
 
-        print(
-            "ERROR OCCURRED"
-        )
+
+        print("\n******** ERROR ********")
+
 
         traceback.print_exc()
 
+
         return jsonify({
+
             "error": str(e)
-        }), 500
+
+        }),500
+
+
+
+
 
 
 if __name__ == "__main__":
+
     app.run(
+
         host="0.0.0.0",
+
         port=5000
+
     )
-
-
-
-
-
