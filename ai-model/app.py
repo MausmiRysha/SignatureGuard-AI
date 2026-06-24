@@ -12,17 +12,35 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-# ✅ FIX 1: Simple CORS setup
-CORS(app)
+# ✅ CORS - most aggressive setup
+CORS(app, 
+     origins="*",
+     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+     methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+     supports_credentials=False
+)
 
 
-# ✅ FIX 2: Force CORS headers on every response (fixes OpaqueResponseBlocking)
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+    response.headers["Access-Control-Max-Age"] = "3600"
+    return response
+
+
 @app.after_request
 def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
+    return add_cors_headers(response)
+
+
+# ✅ Global OPTIONS handler - catches ALL preflight requests
+@app.before_request
+def handle_options():
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.status_code = 200
+        return add_cors_headers(response)
 
 
 print("==============================")
@@ -45,7 +63,6 @@ except Exception as e:
 
 
 UPLOAD_FOLDER = "uploads"
-
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
@@ -60,7 +77,6 @@ def preprocess_image(image_path):
         raise Exception("OpenCV failed to read image")
 
     print("Original shape:", img.shape)
-
     img = cv2.resize(img, (128, 128))
     print("After resize:", img.shape)
 
@@ -91,34 +107,30 @@ def ping():
     return jsonify({"success": True})
 
 
-# ✅ FIX 3: Handle OPTIONS preflight request for /predict
-@app.route("/predict", methods=["POST", "OPTIONS"])
+@app.route("/predict", methods=["POST", "OPTIONS", "GET"])
 def predict():
 
-    # Handle CORS preflight
     if request.method == "OPTIONS":
-        return make_response('', 204)
+        response = make_response()
+        response.status_code = 200
+        return add_cors_headers(response)
+
+    if request.method == "GET":
+        return jsonify({"message": "predict endpoint alive"})
 
     try:
-        print("\n\n==============================")
+        print("\n==============================")
         print(" NEW PREDICTION REQUEST ")
         print("==============================")
 
-        print("Headers:", request.headers)
-        print("Files received:", request.files)
-        print("Form data:", request.form)
-
         file = None
 
-        # Accept different frontend keys
         if "image" in request.files:
             file = request.files["image"]
             print("Using key: image")
-
         elif "file" in request.files:
             file = request.files["file"]
             print("Using key: file")
-
         elif "signature" in request.files:
             file = request.files["signature"]
             print("Using key: signature")
@@ -128,7 +140,6 @@ def predict():
             return jsonify({"error": "No image received"}), 400
 
         print("Filename:", file.filename)
-
         filename = secure_filename(file.filename)
 
         if filename == "":
@@ -136,15 +147,12 @@ def predict():
 
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
-
         print("Saved file:", filepath)
 
-        # Preprocess
         image = preprocess_image(filepath)
 
         print("Running TensorFlow prediction...")
         prediction = model.predict(image)
-
         print("RAW OUTPUT:", prediction)
 
         score = float(prediction[0][0])
@@ -157,7 +165,7 @@ def predict():
             label = "Forged"
             confidence = (1 - score) * 100
 
-        response = {
+        response_data = {
             "prediction": label,
             "status": label,
             "result": label,
@@ -166,16 +174,17 @@ def predict():
             "image": filename
         }
 
-        print("FINAL RESPONSE:")
-        print(response)
-
-        return jsonify(response)
+        print("FINAL RESPONSE:", response_data)
+        return jsonify(response_data)
 
     except Exception as e:
-        print("\n******** ERROR ********")
+        print("\n*** ERROR ***")
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
+
+
